@@ -1,4 +1,4 @@
-📦 Linux 存储管理实战 — 新磁盘挂载 / 扩容 / inode 排查 / Swap 配置
+# 📦 Linux 存储管理实战 — 新磁盘挂载 / 扩容 / inode 排查 / Swap 配置
 
 （基于 CentOS7）
 
