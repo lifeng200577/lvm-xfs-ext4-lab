@@ -1,93 +1,209 @@
-# 📦 Linux 存储管理实战（LVM / XFS / EXT4）
+📦 Linux 存储管理实战 — 新磁盘挂载 / 扩容 / inode 排查 / Swap 配置
 
-作为一名正在成长的运维实习生，我把最近练习 Linux 存储管理的核心流程整理成这个仓库，用来巩固系统基础，也贴近企业真实环境的扩容与迁移操作。
+（基于 CentOS7）
 
-## 🟦 1. 新增磁盘与挂载
+本文记录了我在实战中完成的「第一周任务 1」全过程，包括新增磁盘、分区、格式化、挂载、扩容、inode 排查、swap 设置等完整实验流程。
+内容来自我本地的实际操作，并整理成结构化文档，方便复现与学习。
 
-使用 fdisk 分区
+# 🟦 一、挂载一块新磁盘
 
-mkfs.xfs / mkfs.ext4 格式化
+## 1.添加一款磁盘
 
-挂载到 /data
+检查当前磁盘状态
 
-/etc/fstab 持久化
+[root@localhost ~]# lsblk
 
-这是磁盘使用的基础操作，也是之后做 LVM 的前提。
+<img width="430" height="126" alt="image" src="https://github.com/user-attachments/assets/73f5585e-f533-47b2-ba4b-538bef72d55c" />
 
-## 🟧 2. LVM 管理：PV / VG / LV 全流程
+在虚拟机关机状态添加一块硬盘
 
-pvcreate 初始化物理卷
+<img width="504" height="364" alt="image" src="https://github.com/user-attachments/assets/113f01de-1f15-4ce7-8263-b2ced8451853" />
 
-vgcreate 建立卷组
 
-lvcreate 创建逻辑卷
+（配置保持默认，添加后再开机）
 
-配置 XFS / EXT4 文件系统
+<img width="519" height="422" alt="image" src="https://github.com/user-attachments/assets/ae6e2ba1-94ee-4f97-8740-369ecf3dc617" />
 
-掌握 LVM 是理解企业存储体系的关键。
+<img width="362" height="211" alt="image" src="https://github.com/user-attachments/assets/d606c2a2-e589-4d1b-8104-827c279babc0" />
 
-## 🟩 3. XFS 扩容（在线扩容）
+开机后再次执行 lsblk，可看到新磁盘 sdb 已识别。
 
-XFS 支持在线扩容，不需要卸载：
+[root@localhost ~]# lsblk
 
-lvextend + xfs_growfs
+<img width="501" height="157" alt="image" src="https://github.com/user-attachments/assets/2a637e15-0035-4073-983d-0f4431d3e223" />
 
-适合数据库、日志目录等高可用场景。
+## 2. 手动分区
 
-## 🟥 4. XFS 缩容（迁移缩容法）
+[root@localhost ~]# fdisk /dev/sdb
 
-由于 XFS 不支持 shrink，采用迁移方案：
+n → p → 1 → Enter → Enter → w
 
-创建更小 LV
+<img width="554" height="316" alt="image" src="https://github.com/user-attachments/assets/23794b07-2581-434e-9ade-aa9c1c040eab" />
 
-rsync -avx 迁移数据
 
-diff -r 校验目录一致性
+重新查看：
 
-删除旧 LV
+[root@localhost ~]# lsblk
 
-重命名新 LV
+<img width="554" height="165" alt="image" src="https://github.com/user-attachments/assets/d7573107-8be6-4d6e-b1c1-644f943192e7" />
 
-挂载回原路径
+## 3. 格式化为文件系统
 
-这是生产环境中 唯一安全可靠 的 XFS 缩容方式。
+你可以选 XFS 或 EXT4：
 
-## 🟦 5. EXT4 扩缩容
+XFS：
 
-EXT4 支持在线扩容，也支持离线 shrink：
+mkfs.xfs /dev/sdb1
 
-扩：lvextend + resize2fs
+EXT4：
 
-缩：umount → e2fsck → resize2fs
+mkfs.ext4 /dev/sdb1
 
-适用于更灵活的文件系统管理场景。
+XFS	    稳定通用、支持日志恢复	      小文件系统、兼容性好
 
-## 🟨 6. 其他存储基础：Swap / inode / 使用率分析
+ext4	   性能强大、支持超大文件、CentOS 默认	    大容量数据、数据库、/data
 
-创建并持久化 swapfile
+我这里选得是XFS
 
-df -i 排查 inode
+[root@localhost ~]# mkfs.xfs /dev/sdb1
 
-du -sh / df -Th 分析目录与磁盘空间
+<img width="554" height="135" alt="image" src="https://github.com/user-attachments/assets/a4070909-5ba6-4ed6-8a33-b5e1fa334d56" />
 
-MD5 校验数据完整性（迁移后）
+## 4. 创建挂载点并挂载
 
-这些工具是排障和日常运维的核心技能。
+创建、挂载、检查
 
-## 🎯 这个仓库的意义
+[root@localhost ~]# mkdir  /data
 
-### 这是我作为运维实习生的一个阶段性学习成果，用来：
+[root@localhost ~]# mount /dev/sdb1 /data
 
-#### 夯实 Linux 存储基础
+[root@localhost ~]# df -h | grep data
 
-掌握企业常用的扩容与迁移手法
+<img width="448" height="72" alt="image" src="https://github.com/user-attachments/assets/5ba9d8ba-f145-4e51-8cee-2024c00e0c1d" />
 
-训练自己处理文件系统风险
+## 5. 配置永久挂载（fstab）
 
-形成可复现、可验证、可总结的操作流程
+查看 UUID：
 
-我会持续更新，也希望未来能处理更复杂的生产级存储环境。
+[root@localhost ~]# blkid /dev/sdb1
 
-#### 巩固 Linux 存储体系，为后续云原生与 Kubernetes 学习打好基础。
+/dev/sdb1: UUID="650f9d23-f939-4566-9faa-eb6eaec79306" TYPE="xfs" 
 
-这个仓库是我学习道路上的一个阶段成果，也记录了我不断“动手实战”的态度。
+写入 fstab：
+
+[root@localhost ~]# vi /etc/fstab 
+
+ 将获得的UUID填写到文件最下面
+
+UUID=650f9d23-f939-4566-9faa-eb6eaec79306 /data xfs defaults 0 0
+
+
+验证：
+
+[root@localhost ~]# umount /data
+
+[root@localhost ~]# mount -a
+
+[root@localhost ~]# df -h | grep data
+
+<img width="554" height="87" alt="image" src="https://github.com/user-attachments/assets/ad5fe4fc-8733-4a22-8aa8-093d97818fc1" />
+
+# 🟧 二、扩容磁盘（20G → 30G）
+
+目标：在原磁盘基础上扩大磁盘容量并扩容文件系统   30G
+
+## 1. 虚拟机扩容硬盘
+
+关机 → 设置 → 磁盘 → 修改容量为 30G
+
+（注意不能有快照）
+
+<img width="554" height="363" alt="image" src="https://github.com/user-attachments/assets/2b72a483-5b06-4384-a0f2-ef966c82be77" />
+
+开机后查看大小已变化，但分区未扩展：
+
+<img width="554" height="289" alt="image" src="https://github.com/user-attachments/assets/04d61fe4-35e4-48eb-950f-e3fbbed9ed00" />
+
+## 2. 扩展分区（保持起始扇区不变）
+
+记录原起始扇区：
+
+比如：Start = 2048
+
+[root@localhost ~]# fdisk -l /dev/sdb
+
+重新分区：
+
+[root@localhost ~]# fdisk /dev/sdb
+
+<img width="577" height="165" alt="image" src="https://github.com/user-attachments/assets/b85c72bc-62f6-4bbd-a142-765135dde84e" />
+
+<img width="554" height="324" alt="image" src="https://github.com/user-attachments/assets/f6b0a028-f7fa-46f3-a547-5c4023c24d44" />
+
+刷新分区表：
+
+[root@localhost ~]# partprobe /dev/sdb
+
+<img width="554" height="159" alt="image" src="https://github.com/user-attachments/assets/0cf58f48-a73f-4011-9ae7-64654bcd61e8" />
+
+
+
+## 3. 扩容 XFS 文件系统
+   
+[root@localhost ~]# xfs_growfs /data
+
+查看扩容结果：
+
+[root@localhost ~]# df -h
+
+# 🟩 三、inode 排查
+
+1. 查看 inode 使用情况
+
+[root@localhost ~]# df -i
+
+<img width="554" height="137" alt="image" src="https://github.com/user-attachments/assets/7b5c9af2-75be-4bee-9182-a8fbd7febdec" />
+
+2. 找出产生大量小文件的目录
+
+[root@localhost ~]# du --inodes -d 2 /data | sort -nr | head
+
+3. 删除大量旧文件（例如 7 天前）以及空目录
+
+find /data/tmp -type f -mtime +7 -delete
+find /data/tmp -type d -empty -delete
+
+4. 验证 inode 恢复情况
+
+df -i
+
+# 🟨 四、配置 Swap（扩展为 4G）
+
+## 1. 创建 swap 文件
+
+[root@localhost ~]# dd if=/dev/zero of=/swapfile bs=1M count=4096
+
+[root@localhost ~]# chmod 600 /swapfile
+
+## 2. 格式化为 swap
+
+[root@localhost ~]# mkswap /swapfile
+
+## 3. 启用 swap
+
+swapon /swapfile
+
+free -h
+
+## 4. 持久化（写入 fstab）
+
+[root@localhost ~]# echo "/swapfile swap swap defaults 0 0" >> /etc/fstab
+
+验证生效：
+
+mount -a
+
+free -h
+
+<img width="554" height="367" alt="image" src="https://github.com/user-attachments/assets/3200f547-f864-4136-b773-ff19fe81d333" />
+
